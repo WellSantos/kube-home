@@ -1,0 +1,210 @@
+Links:
+K8s
+https://medium.com/@fidelissauro/kubernetes-criando-um-cluster-simples-com-o-kubeadm-e50a9eb4f4a6
+https://kubernetes.io/pt/docs/concepts/cluster-administration/cluster-administration-overview/
+https://kubernetes.io/docs/concepts/overview/components/
+https://kubernetes.io/docs/tasks/tools/
+https://kubernetes.io/docs/setup/
+https://kubernetes.io/docs/setup/best-practices/
+https://kubernetes.io/docs/setup/production-environment/tools/kubeadm/install-kubeadm/
+
+VBox
+https://phcco.com/manual-do-virtualbox-via-linha-de-comando
+https://michlstechblog.info/blog/virtualbox-creating-and-controling-virtual-maschines-from-command-line/
+
+# Configurando o Master
+https://medium.com/@fidelissauro/kubernetes-criando-um-cluster-simples-com-o-kubeadm-e50a9eb4f4a6
+
+=======================================================================================================
+# Criando um cluster kubernetes em casa com kubeadm
+
+Kubernetes é um orquestrador de containers(docker, containerd, etc) que facilita o gerenciamento do ciclo de vida de uma aplicação rodando em cluster.
+Com ele é possível configurarmos um ambiente de altíssima disponibilidade em ambiente de produção.
+
+Neste tutorial, iremos criar um cluster k8s(kubernetes) em casa, para treinamento, utilizando VMs(virtual machines) rodando sob VirtualBox.
+
+## Pré-requisitos
+- Instalar e usar o VirtualBox
+- Conhecimentos básicos de Linux
+
+## Arquitetura
+No VirtualBox iremos criar 3 VMs Linux. 
+Neste tutorial usamos uma imagem ISO Ubuntu 18.04 minimal. Optamos por ela por ser muito mais leve, apenas com o necessário pra instalarmos o que precisamos.
+>> Colocar o link da iso aqui
+
+
+1 master(k8s-master-01)
+2 minions(k8s-minion-01/k8s-minion-02)
+
+É importante ressaltar que por padrão tanto o node master quanto os minions, precisam ter no mínimo 2G RAM e 2 vCPUs.
+É possível rodar com apenas 1vCPU e com menos memória? Sim, mas o cluster irá ficar muuuito lento e a
+Como explicado anteriormente, kubernetes é um orquestrador de containers e para este tutorial iremos usar docker.
+
+Outro ponto importante, é que o procedimento abaixo deve ser realizado tanto na master quanto nas minions, com a diferença do último passo.
+
+## Installando o docker
+
+sudo apt-get update
+
+sudo apt-get install \
+    apt-transport-https \
+    ca-certificates \
+    curl \
+    gnupg-agent \
+    software-properties-common
+
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg | sudo apt-key add -
+
+sudo add-apt-repository \
+   "deb [arch=amd64] https://download.docker.com/linux/ubuntu \
+   $(lsb_release -cs) \
+   stable"
+
+sudo apt-get update
+sudo apt-get install docker-ce docker-ce-cli containerd.io
+
+Depois de instalar o docker, tente rodar o comando abaixo só pra certificar que a instalação foi bem sucedida.
+docker run hello-world
+
+AVISO: Se por um acaso você receber a mensagem abaixo, proceda conforme indicado abaixo:
+Got permission denied while trying to connect to the Docker daemon socket at unix:///var/run/docker.sock: Get http://%2Fvar%2Frun%2Fdocker.sock/v1.24/containers/json: dial unix /var/run/docker.sock: connect: permission denied``` 
+
+Para resolver esse problema, rode os comandos abaixo:
+sudo groupadd docker (talvez o grupo já exista)
+sudo usermod -aG docker $USER
+sudo init 6 (reinicie o server)
+
+Então rode novamente: docker run hello-world
+
+
+## Instalando Kubernetes - https://computingforgeeks.com/deploy-kubernetes-cluster-on-ubuntu-with-kubeadm/
+
+Para que o kubernetes possa rodar corretamente, são necessárias algumas ações no servidor
+
+### Liberando o Iptables para o tráfego no servidor
+
+sudo modprobe overlay
+sudo modprobe br_netfilter
+
+cat <<EOF | sudo tee /etc/sysctl.d/k8s.conf
+net.bridge.bridge-nf-call-ip6tables = 1
+net.bridge.bridge-nf-call-iptables = 1
+EOF
+sudo sysctl --system
+
+### Desabilitando swap
+sudo sed -i '/ swap / s/^\(.*\)$/#\1/g' /etc/fstab
+swapoff -a
+
+sudo apt-get update && sudo apt-get install -y apt-transport-https curl
+curl -s https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo apt-key add -
+cat <<EOF | sudo tee /etc/apt/sources.list.d/kubernetes.list
+deb https://apt.kubernetes.io/ kubernetes-xenial main
+EOF
+sudo apt-get update
+sudo apt-get install -y kubelet kubeadm kubectl
+sudo apt-mark hold kubelet kubeadm kubectl
+
+### Habilitando o kubelet 
+sudo systemctl enable kubelet
+
+
+### Agora vamos configurar e inicializar o kubeadm(Este procedimento deve ser feito somente na master)
+sudo kubeadm config images pull
+
+sudo kubeadm init
+
+
+Ao final do processo, será exibida uma mensagem semelhante a que está abaixo.
+Vc deve executar os comandos informados:
+
+--------------------------------------------------------------------------------------------------
+Your Kubernetes control-plane has initialized successfully!
+
+To start using your cluster, you need to run the following as a regular user:
+
+  mkdir -p $HOME/.kube
+  sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+  sudo chown $(id -u):$(id -g) $HOME/.kube/config
+
+You should now deploy a pod network to the cluster.
+Run "kubectl apply -f [podnetwork].yaml" with one of the options listed at:
+  https://kubernetes.io/docs/concepts/cluster-administration/addons/
+
+Then you can join any number of worker nodes by running the following on each as root:
+
+kubeadm join 192.168.1.169:6443 --token kcviz0.6j05ifo1yjtl3m6o \
+    --discovery-token-ca-cert-hash sha256:e570aad7dd00d377f600ee992712faf2f5ae934714eb8a7484acd6ba79af1e93
+
+--------------------------------------------------------------------------------------------------
+
+### Adicionando os minions ao master
+Conforme mostrado na mensagem acima, para adicionar os workers(minions) ao master basta rodar o `kubeadm join` como mostrado.
+
+kubeadm join <ip-do-master>:6443 --token <token> \
+    --discovery-token-ca-cert-hash <discovery-token> 
+
+Esse comando deve ser executado em todos os workers(minion) que você achar necessário.
+No nosso caso, realizamos os procedimentos na master e nos 2 minions.
+
+
+### Instalando o plugin do Calico
+O Calico é um plugin de rede que usamos junto com kubernetes.
+A instalação é bem simples.
+
+kubectl apply -f https://docs.projectcalico.org/manifests/calico.yaml
+
+## Verificando se tudo deu certo
+
+Vamos verificar se todos os componentes do kubernetes foram instalados e estão rodando corretamente.
+Na master, rode os comandos:
+
+kubectl get pods --all-namespaces
+
+A saída deve ser parecida com a abaixo:
+NAMESPACE     NAME                                       READY   STATUS    RESTARTS   AGE
+kube-system   calico-kube-controllers-5dc87d545c-h8x6k   1/1     Running   0          11m
+kube-system   calico-node-qclt7                          1/1     Running   0          11m
+kube-system   calico-node-rtd57                          1/1     Running   0          11m
+kube-system   coredns-74ff55c5b-d4qqb                    1/1     Running   0          27m
+kube-system   coredns-74ff55c5b-rmwn5                    1/1     Running   0          27m
+kube-system   etcd-k8s-master-01                         1/1     Running   0          27m
+kube-system   kube-apiserver-k8s-master-01               1/1     Running   0          27m
+kube-system   kube-controller-manager-k8s-master-01      1/1     Running   0          27m
+kube-system   kube-proxy-5zxrv                           1/1     Running   0          27m
+kube-system   kube-proxy-9s9gb                           1/1     Running   0          12m
+kube-system   kube-scheduler-k8s-master-01               1/1     Running   0          27m
+
+Repare que todos estão "ready" e com o status "running".
+
+Rode também:
+kubectl get nodes
+
+NAME            STATUS   ROLES                  AGE     VERSION
+k8s-master-01   Ready    control-plane,master   21h     v1.20.0
+k8s-minion-01   Ready    <none>                 21h     v1.20.0
+k8s-minion-02   Ready    <none>                 6h40m   v1.20.0
+
+Repare que todos estão com o status "Ready"
+
+## Testando um deployment
+Agora vamos testar o nosso ambiente subindo uma aplicação.
+No nosso exemplo iremos subir um deployment do Nginx.
+
+Muito simples.
+kubectl apply -f https://k8s.io/examples/application/deployment.yaml
+
+Checando se o deployment funfou
+
+kubectl get deployment
+NAME               READY   UP-TO-DATE   AVAILABLE   AGE
+nginx-deployment   2/2     2            2           22m
+
+
+kubectl get pods
+NAME                                READY   STATUS    RESTARTS   AGE
+nginx-deployment-66b6c48dd5-kds8c   1/1     Running   0          16m
+nginx-deployment-66b6c48dd5-vc88w   1/1     Running   0          16m
+
+
+
